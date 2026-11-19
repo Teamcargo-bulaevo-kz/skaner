@@ -37,6 +37,9 @@ final class SonarEngine {
     private short[] chirp;
     private int startHz = 15000;
     private int endHz = 19000;
+    private final float[] recentNearest = {-1f, -1f, -1f};
+    private int recentIndex;
+    private long lastBeepAt;
 
     SonarEngine(Listener listener) {
         this.listener = listener;
@@ -107,6 +110,9 @@ final class SonarEngine {
                 throw new IllegalStateException("Не удалось открыть динамик");
             }
             player.setVolume(0.92f);
+            lastBeepAt = 0L;
+            recentNearest[0] = recentNearest[1] = recentNearest[2] = -1f;
+            recentIndex = 0;
 
             int sessionId = recorder.getAudioSessionId();
             if (AutomaticGainControl.isAvailable()) {
@@ -129,16 +135,19 @@ final class SonarEngine {
             captureWorker.start();
             listener.onStatus("Идёт акустическое сканирование");
             short[] quietGap = new short[2400];
+            short[] beep = makeParkingBeep(SAMPLE_RATE, 820, 22);
+            short[] beepTail = new short[960];
 
             while (running) {
                 long marker = writeIndex.get();
                 int written = player.write(chirp, 0, chirp.length, AudioTrack.WRITE_BLOCKING);
                 if (written < 0) throw new IllegalStateException("Ошибка вывода звука: " + written);
                 player.write(quietGap, 0, quietGap.length, AudioTrack.WRITE_BLOCKING);
-                Thread.sleep(175);
                 short[] capture = snapshot(marker);
                 SonarDsp.Analysis result = SonarDsp.analyze(capture, chirp, SAMPLE_RATE);
                 listener.onMeasurement(result.echoes, result.directStrength);
+                float stableNearest = updateStableNearest(result.echoes);
+                if (stableNearest > 0f) playParkingBeepIfDue(stableNearest, beep, beepTail);
                 if (result.directStrength < 0.06f) {
                     listener.onStatus("Слабый сигнал · проверьте громкость и положение");
                 } else if (result.echoes.length == 0) {
@@ -146,7 +155,7 @@ final class SonarEngine {
                 } else {
                     listener.onStatus("Обнаружено отражений: " + result.echoes.length);
                 }
-                Thread.sleep(45);
+                Thread.sleep(28);
             }
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
@@ -157,6 +166,65 @@ final class SonarEngine {
             running = false;
             releaseAudio();
         }
+    }
+
+
+    private float updateStableNearest(SonarDsp.Echo[] echoes) {
+        float nearest = -1f;
+        if (echoes != null) {
+            for (SonarDsp.Echo echo : echoes) {
+                if (echo.strength >= 0.10f && (nearest < 0f || echo.distanceMeters < nearest)) {
+                    nearest = echo.distanceMeters;
+                }
+            }
+        }
+        recentNearest[recentIndex] = nearest;
+        recentIndex = (recentIndex + 1) % recentNearest.length;
+        float best = -1f;
+        for (float candidate : recentNearest) {
+            if (candidate <= 0f) continue;
+            int matches = 0;
+            float sum = 0f;
+            for (float other : recentNearest) {
+                if (other > 0f && Math.abs(other - candidate) <= 0.30f) {
+                    matches++;
+                    sum += other;
+                }
+            }
+            if (matches >= 2 && (best < 0f || sum / matches < best)) best = sum / matches;
+        }
+        return best;
+    }
+
+    private void playParkingBeepIfDue(float distance, short[] beep, short[] tail) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        long interval;
+        if (distance < 0.55f) interval = 105;
+        else if (distance < 1.0f) interval = 160;
+        else if (distance < 1.8f) interval = 240;
+        else if (distance < 3.0f) interval = 360;
+        else interval = 520;
+        if (now - lastBeepAt < interval || player == null) return;
+        lastBeepAt = now;
+        try {
+            player.setVolume(0.13f);
+            player.write(beep, 0, beep.length, AudioTrack.WRITE_BLOCKING);
+            player.write(tail, 0, tail.length, AudioTrack.WRITE_BLOCKING);
+            player.setVolume(0.92f);
+        } catch (Exception ignored) {
+            try { if (player != null) player.setVolume(0.92f); } catch (Exception ignoredAgain) { }
+        }
+    }
+
+    private static short[] makeParkingBeep(int sampleRate, int frequency, int durationMs) {
+        int count = sampleRate * durationMs / 1000;
+        short[] tone = new short[count];
+        for (int i = 0; i < count; i++) {
+            double envelope = Math.min(1.0, Math.min(i / 80.0, (count - 1 - i) / 100.0));
+            tone[i] = (short) (Math.sin(2.0 * Math.PI * frequency * i / sampleRate)
+                    * envelope * 4200.0);
+        }
+        return tone;
     }
 
     private void captureLoop() {
