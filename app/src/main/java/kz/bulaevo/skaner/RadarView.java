@@ -176,8 +176,9 @@ final class RadarView extends View {
         for (int ring = 1; ring <= 5; ring++) {
             float r = radius * ring / 5f;
             float metres = maxRange * ring / 5.0f;
-            String label = metres >= 1.0f ? String.format(java.util.Locale.US, "%.0f м", metres)
-                    : String.format(java.util.Locale.US, "%.1f м", metres);
+            String label = maxRange <= 2.1f
+                    ? String.format(java.util.Locale.US, "%.1f м", metres)
+                    : String.format(java.util.Locale.US, "%.0f м", metres);
             canvas.drawText(label, cx + 5, cy - r + 13, paint);
         }
         canvas.drawText("N", cx - 4, cy - radius - 8, paint);
