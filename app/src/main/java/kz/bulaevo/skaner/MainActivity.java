@@ -62,6 +62,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
     private SonarEngine sonarEngine;
     private SensorManager sensorManager;
     private Sensor rotationSensor;
+    private HardwareDiagnosticsView diagnosticsView;
     private int currentPage;
 
     private TextureView cameraTexture;
@@ -125,12 +126,18 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
 
     private void showPage(int page) {
         currentPage = page;
+        if (diagnosticsView != null) diagnosticsView.stop();
         stopCamera();
         if (page != 0) stopSonar();
         pageHost.removeAllViews();
         if (page == 0) pageHost.addView(buildRadarPage());
         else if (page == 1) pageHost.addView(buildNightPage());
-        else pageHost.addView(buildInfoPage());
+        else if (page == 2) pageHost.addView(buildInfoPage());
+        else {
+            diagnosticsView = new HardwareDiagnosticsView(this);
+            pageHost.addView(diagnosticsView);
+            diagnosticsView.start();
+        }
         if (page == 1) {
             if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                 cameraTexture.post(this::startCameraIfReady);
@@ -145,7 +152,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         if (root == null || root.getChildCount() < 3) return;
         LinearLayout navigation = (LinearLayout) root.getChildAt(2);
         navigation.removeAllViews();
-        String[] names = {"РАДАР", "НОЧЬ", "О ПРОЕКТЕ"};
+        String[] names = {"РАДАР", "НОЧЬ", "О ПРОЕКТЕ", "ДАТЧИКИ"};
         for (int i = 0; i < names.length; i++) {
             final int target = i;
             Button button = makeButton(names[i], i == currentPage);
@@ -490,11 +497,13 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
             sensorManager.registerListener(this, rotationSensor, SensorManager.SENSOR_DELAY_GAME);
         }
         if (currentPage == 1 && cameraTexture != null) cameraTexture.post(this::startCameraIfReady);
+        if (currentPage == 3 && diagnosticsView != null) diagnosticsView.start();
     }
 
     @Override protected void onPause() {
         stopSonar();
         stopCamera();
+        if (diagnosticsView != null) diagnosticsView.stop();
         if (sensorManager != null) sensorManager.unregisterListener(this);
         super.onPause();
     }
