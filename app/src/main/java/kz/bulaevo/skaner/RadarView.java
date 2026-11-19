@@ -24,7 +24,7 @@ final class RadarView extends View {
     private static final int SECTOR_COUNT = 45;
     private static final int HISTORY_LIMIT = 12;
     private static final long MIN_SAMPLE_SPACING_MS = 120L;
-    private static final long HISTORY_AGE_MS = 2600L;
+    private static final long HISTORY_AGE_MS = 2200L;
     private static final float MAX_RANGE = 6.5f;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -86,7 +86,7 @@ final class RadarView extends View {
         float nearest = -1f;
         if (echoes != null) {
             for (SonarDsp.Echo echo : echoes) {
-                if (echo != null && echo.strength >= 0.20f
+                if (echo != null && echo.strength >= 0.065f
                         && echo.distanceMeters >= 0.24f && echo.distanceMeters <= MAX_RANGE
                         && (nearest < 0f || echo.distanceMeters < nearest)) {
                     nearest = echo.distanceMeters;
@@ -118,7 +118,7 @@ final class RadarView extends View {
             Arrays.sort(deviations);
             float mad = median(deviations);
             // Reject unstable multipath peaks instead of painting them as objects.
-            if (mad <= 0.16f && values[n - 1] - values[0] <= 0.55f) {
+            if (mad <= 0.20f && values[n - 1] - values[0] <= 0.70f) {
                 sector.distance = median;
                 sector.confirmations = n;
                 sector.updatedAt = now;
