@@ -35,8 +35,9 @@ final class SonarEngine {
     private NoiseSuppressor noiseSuppressor;
     private AcousticEchoCanceler echoCanceler;
     private short[] chirp;
-    private int startHz = 6500;
-    private int endHz = 11500;
+    private int startHz = 5000;
+    private int endHz = 9500;
+    private float maxRangeMeters = 2.0f;
     private final float[] recentNearest = {-1f, -1f, -1f};
     private int recentIndex;
     private long lastBeepAt;
@@ -45,10 +46,11 @@ final class SonarEngine {
         this.listener = listener;
     }
 
-    synchronized void start(boolean highFrequency) {
+    synchronized void start(boolean longRangeMode) {
         if (running) return;
-        startHz = highFrequency ? 9500 : 6500;
-        endHz = highFrequency ? 14500 : 11500;
+        maxRangeMeters = longRangeMode ? 10.0f : 2.0f;
+        startHz = longRangeMode ? 3500 : 5000;
+        endHz = longRangeMode ? 7500 : 9500;
         running = true;
         worker = new Thread(this::runSonar, "Skaner-Sonar");
         worker.start();
@@ -109,7 +111,7 @@ final class SonarEngine {
             if (player.getState() != AudioTrack.STATE_INITIALIZED) {
                 throw new IllegalStateException("Не удалось открыть динамик");
             }
-            player.setVolume(1.0f);
+            player.setVolume(0.55f);
             lastBeepAt = 0L;
             recentNearest[0] = recentNearest[1] = recentNearest[2] = -1f;
             recentIndex = 0;
@@ -135,8 +137,8 @@ final class SonarEngine {
             captureWorker.start();
             listener.onStatus("Идёт акустическое сканирование");
             short[] quietGap = new short[6000]; // 125 ms; gives late room echoes time to reach the mic
-            short[] beep = makeParkingBeep(SAMPLE_RATE, 1450, 28);
-            short[] beepTail = new short[960];
+            short[] tick = makeGeigerClick(SAMPLE_RATE, 6);
+            short[] tickTail = new short[960];
 
             while (running) {
                 long marker = writeIndex.get();
@@ -145,10 +147,10 @@ final class SonarEngine {
                 player.write(quietGap, 0, quietGap.length, AudioTrack.WRITE_BLOCKING);
                 if (!awaitCapture(marker, SAMPLE_RATE * 150 / 1000)) continue;
                 short[] capture = snapshot(marker);
-                SonarDsp.Analysis result = SonarDsp.analyze(capture, chirp, SAMPLE_RATE);
+                SonarDsp.Analysis result = SonarDsp.analyze(capture, chirp, SAMPLE_RATE, maxRangeMeters);
                 listener.onMeasurement(result.echoes, result.directStrength);
                 float stableNearest = updateStableNearest(result.echoes);
-                if (stableNearest > 0f) playParkingBeepIfDue(stableNearest, beep, beepTail);
+                if (stableNearest > 0f) playGeigerTickIfDue(stableNearest, tick, tickTail);
                 if (result.directStrength < 0.06f) {
                     listener.onStatus("Слабый сигнал · проверьте громкость и положение");
                 } else if (result.echoes.length == 0) {
@@ -197,35 +199,41 @@ final class SonarEngine {
         return best;
     }
 
-    private void playParkingBeepIfDue(float distance, short[] beep, short[] tail) {
+    private void playGeigerTickIfDue(float distance, short[] tick, short[] tail) {
         long now = android.os.SystemClock.elapsedRealtime();
         long interval;
-        if (distance < 0.55f) interval = 105;
-        else if (distance < 1.0f) interval = 160;
-        else if (distance < 1.8f) interval = 240;
-        else if (distance < 3.0f) interval = 360;
-        else interval = 520;
+        if (distance < 0.55f) interval = 120;
+        else if (distance < 1.0f) interval = 210;
+        else if (distance < 2.0f) interval = 340;
+        else if (distance < 4.0f) interval = 560;
+        else interval = 850;
         if (now - lastBeepAt < interval || player == null) return;
         lastBeepAt = now;
         try {
-            player.setVolume(0.22f);
-            player.write(beep, 0, beep.length, AudioTrack.WRITE_BLOCKING);
+            player.setVolume(0.18f);
+            player.write(tick, 0, tick.length, AudioTrack.WRITE_BLOCKING);
             player.write(tail, 0, tail.length, AudioTrack.WRITE_BLOCKING);
-            player.setVolume(1.0f);
+            player.setVolume(0.55f);
         } catch (Exception ignored) {
-            try { if (player != null) player.setVolume(0.92f); } catch (Exception ignoredAgain) { }
+            try { if (player != null) player.setVolume(0.55f); } catch (Exception ignoredAgain) { }
         }
     }
 
-    private static short[] makeParkingBeep(int sampleRate, int frequency, int durationMs) {
+    private static short[] makeGeigerClick(int sampleRate, int durationMs) {
         int count = sampleRate * durationMs / 1000;
-        short[] tone = new short[count];
+        short[] click = new short[count];
+        int state = 0x5A17C3;
+        double smoothNoise = 0.0;
         for (int i = 0; i < count; i++) {
-            double envelope = Math.min(1.0, Math.min(i / 80.0, (count - 1 - i) / 100.0));
-            tone[i] = (short) (Math.sin(2.0 * Math.PI * frequency * i / sampleRate)
-                    * envelope * 4200.0);
+            state ^= state << 13;
+            state ^= state >>> 17;
+            state ^= state << 5;
+            double noise = ((state & 0x7fffffff) / (double) 0x3fffffff) - 1.0;
+            smoothNoise = smoothNoise * 0.28 + noise * 0.72;
+            double envelope = Math.min(1.0, Math.min(i / 18.0, (count - 1 - i) / 42.0));
+            click[i] = (short) (smoothNoise * envelope * 7500.0);
         }
-        return tone;
+        return click;
     }
 
     private void captureLoop() {
