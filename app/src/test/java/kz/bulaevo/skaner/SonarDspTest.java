@@ -7,7 +7,7 @@ public class SonarDspTest {
     @Test
     public void matchedFilterFindsSyntheticOneMeterEcho() {
         int sampleRate = 48000;
-        short[] chirp = SonarDsp.makeChirp(sampleRate, 16000, 19500, 24);
+        short[] chirp = SonarDsp.makeChirp(sampleRate, 16000, 19500, 4);
         short[] signal = new short[18000];
         int directAt = 1800;
         int echoDelay = (int) Math.round(2.0 * sampleRate / 343.0);
