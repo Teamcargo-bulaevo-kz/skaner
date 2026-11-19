@@ -374,7 +374,11 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         longRangeMode = !longRangeMode;
         maxRangeMeters = longRangeMode ? 10.0f : 2.0f;
         if (rangeButton != null) rangeButton.setText(longRangeMode ? "ДАЛЬНОСТЬ: 10 М" : "ДАЛЬНОСТЬ: 2 М");
-        if (radarView != null) radarView.setMaxRange(maxRangeMeters);
+        if (radarView != null) {
+            radarView.clearMap();
+            radarView.setMaxRange(maxRangeMeters);
+        }
+        if (readingText != null) readingText.setText("Дистанция: —     Эхо: —");
         if (resume) startSonar();
     }
 
