@@ -54,8 +54,9 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
     private TextView readingText;
     private RadarView radarView;
     private Button scanButton;
-    private Button frequencyButton;
-    private boolean highFrequency;
+    private Button rangeButton;
+    private boolean longRangeMode;
+    private float maxRangeMeters = 2.0f;
     private boolean scanning;
     private float heading;
     private SonarEngine sonarEngine;
@@ -171,6 +172,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         mapLp.bottomMargin = dp(4);
         page.addView(radarView, mapLp);
         radarView.setHeading(heading);
+        radarView.setMaxRange(maxRangeMeters);
 
         readingText = label("Дистанция: —     Эхо: —", 12, TEXT, true);
         readingText.setGravity(Gravity.CENTER);
@@ -184,11 +186,12 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         controls.addView(scanButton, startLp);
         scanButton.setOnClickListener(v -> toggleSonar());
 
-        frequencyButton = makeButton("6.5–11.5 кГц", false);
-        LinearLayout.LayoutParams freqLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        freqLp.setMargins(dp(5), dp(6), 0, dp(5));
-        controls.addView(frequencyButton, freqLp);
-        frequencyButton.setOnClickListener(v -> toggleFrequency());
+        rangeButton = makeButton("ДАЛЬНОСТЬ: 2 М", false);
+        rangeButton.setTextSize(10);
+        LinearLayout.LayoutParams rangeLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        rangeLp.setMargins(dp(5), dp(6), 0, dp(5));
+        controls.addView(rangeButton, rangeLp);
+        rangeButton.setOnClickListener(v -> toggleRangeMode());
         page.addView(controls, new LinearLayout.LayoutParams(-1, dp(60)));
 
         LinearLayout bottom = new LinearLayout(this);
@@ -365,13 +368,14 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         page.addView(bodyView);
     }
 
-    private void toggleFrequency() {
-        highFrequency = !highFrequency;
-        if (frequencyButton != null) frequencyButton.setText(highFrequency ? "9.5–14.5 кГц" : "6.5–11.5 кГц");
-        if (scanning) {
-            stopSonar();
-            startSonar();
-        }
+    private void toggleRangeMode() {
+        boolean resume = scanning;
+        if (resume) stopSonar();
+        longRangeMode = !longRangeMode;
+        maxRangeMeters = longRangeMode ? 10.0f : 2.0f;
+        if (rangeButton != null) rangeButton.setText(longRangeMode ? "ДАЛЬНОСТЬ: 10 М" : "ДАЛЬНОСТЬ: 2 М");
+        if (radarView != null) radarView.setMaxRange(maxRangeMeters);
+        if (resume) startSonar();
     }
 
     private void toggleSonar() {
@@ -425,7 +429,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
                 });
             }
         });
-        sonarEngine.start(highFrequency);
+        sonarEngine.start(longRangeMode);
     }
 
     private void stopSonar() {
