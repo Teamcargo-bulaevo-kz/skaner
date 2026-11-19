@@ -142,6 +142,60 @@ final class RadarView extends View {
         invalidate();
     }
 
+    /** Ближайшее подтверждённое отражение в конусе перед телефоном. */
+    float nearestInCone(float bearing, float halfWidth) {
+        long now = System.currentTimeMillis();
+        int center = (int) Math.floor((normalize(bearing) + BIN_DEGREES * 0.5f)
+                / BIN_DEGREES) % SECTOR_COUNT;
+        int reach = (int) Math.ceil(halfWidth / BIN_DEGREES);
+        float nearest = Float.NaN;
+        for (int offset = -reach; offset <= reach; offset++) {
+            Sector sector = sectors[(center + offset + SECTOR_COUNT) % SECTOR_COUNT];
+            if (sector.distance > 0f && now - sector.updatedAt <= MAP_POINT_AGE_MS
+                    && (Float.isNaN(nearest) || sector.distance < nearest)) {
+                nearest = sector.distance;
+            }
+        }
+        return nearest;
+    }
+
+    /**
+     * Ищет направление с наибольшим измеренным запасом. Пустой сектор считается
+     * свободным только если недавно был реально просканирован без обнаруженного эха.
+     * Возвращает угол относительно курса: минус — влево, плюс — вправо.
+     */
+    double clearestDirection(float bearing, float limit, float window) {
+        long now = System.currentTimeMillis();
+        int halfWindow = (int) Math.ceil(window / BIN_DEGREES);
+        int center = (int) Math.floor((normalize(bearing) + BIN_DEGREES * 0.5f)
+                / BIN_DEGREES) % SECTOR_COUNT;
+        double bestAngle = Double.NaN;
+        float bestScore = -Float.MAX_VALUE;
+        for (float relative = -limit; relative <= limit + 0.01f; relative += BIN_DEGREES) {
+            int candidate = (center + Math.round(relative / BIN_DEGREES) + SECTOR_COUNT * 2)
+                    % SECTOR_COUNT;
+            int known = 0;
+            float nearestInWindow = maxRange;
+            for (int offset = -halfWindow; offset <= halfWindow; offset++) {
+                Sector sector = sectors[(candidate + offset + SECTOR_COUNT) % SECTOR_COUNT];
+                if (sector.lastSampleAt == 0L || now - sector.lastSampleAt > HISTORY_AGE_MS) continue;
+                if (!sector.samples.isEmpty() && sector.distance <= 0f) continue;
+                known++;
+                if (sector.distance > 0f && now - sector.updatedAt <= MAP_POINT_AGE_MS) {
+                    nearestInWindow = Math.min(nearestInWindow, sector.distance);
+                }
+            }
+            int total = halfWindow * 2 + 1;
+            if (known * 2 < total) continue;
+            float score = nearestInWindow - Math.abs(relative) * 0.004f;
+            if (score > bestScore) {
+                bestScore = score;
+                bestAngle = relative;
+            }
+        }
+        return bestAngle;
+    }
+
     private static float median(float[] values) {
         int n = values.length;
         return (n & 1) == 1 ? values[n / 2] : (values[n / 2 - 1] + values[n / 2]) * 0.5f;
