@@ -67,7 +67,7 @@ final class SonarEngine {
     private void runSonar() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
         try {
-            chirp = SonarDsp.makeChirp(SAMPLE_RATE, startHz, endHz, 24);
+            chirp = SonarDsp.makeChirp(SAMPLE_RATE, startHz, endHz, 4);
             int minRecord = AudioRecord.getMinBufferSize(SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
             int minTrack = AudioTrack.getMinBufferSize(SAMPLE_RATE,
