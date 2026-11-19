@@ -123,9 +123,11 @@ final class SonarDsp {
             }
         }
         if (directIndex < 0) {
-            for (int i = 0; i <= directSearchLimit; i++) {
-                if (scores[i] > scores[Math.max(0, directIndex)]) directIndex = i;
+            int strongestIndex = 0;
+            for (int i = 1; i <= directSearchLimit; i++) {
+                if (scores[i] > scores[strongestIndex]) strongestIndex = i;
             }
+            directIndex = strongestIndex;
         }
         if (directIndex < 0 || scores[directIndex] < 0.10f) {
             return new Analysis(new Echo[0], strongestDirect);
