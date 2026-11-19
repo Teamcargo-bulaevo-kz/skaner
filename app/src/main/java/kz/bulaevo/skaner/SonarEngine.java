@@ -134,7 +134,7 @@ final class SonarEngine {
             captureWorker = new Thread(this::captureLoop, "Skaner-Microphone");
             captureWorker.start();
             listener.onStatus("Идёт акустическое сканирование");
-            short[] quietGap = new short[2400];
+            short[] quietGap = new short[6000]; // 125 ms; gives late room echoes time to reach the mic
             short[] beep = makeParkingBeep(SAMPLE_RATE, 820, 22);
             short[] beepTail = new short[960];
 
@@ -143,6 +143,7 @@ final class SonarEngine {
                 int written = player.write(chirp, 0, chirp.length, AudioTrack.WRITE_BLOCKING);
                 if (written < 0) throw new IllegalStateException("Ошибка вывода звука: " + written);
                 player.write(quietGap, 0, quietGap.length, AudioTrack.WRITE_BLOCKING);
+                if (!awaitCapture(marker, SAMPLE_RATE * 150 / 1000)) continue;
                 short[] capture = snapshot(marker);
                 SonarDsp.Analysis result = SonarDsp.analyze(capture, chirp, SAMPLE_RATE);
                 listener.onMeasurement(result.echoes, result.directStrength);
@@ -247,6 +248,16 @@ final class SonarEngine {
                 break;
             }
         }
+    }
+
+
+    private boolean awaitCapture(long marker, int requiredSamples) throws InterruptedException {
+        long deadline = android.os.SystemClock.elapsedRealtime() + 240L;
+        while (running && writeIndex.get() - marker < requiredSamples
+                && android.os.SystemClock.elapsedRealtime() < deadline) {
+            Thread.sleep(2L);
+        }
+        return running && writeIndex.get() - marker >= requiredSamples;
     }
 
     private short[] snapshot(long marker) {
