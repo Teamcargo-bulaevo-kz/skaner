@@ -35,8 +35,8 @@ final class SonarEngine {
     private NoiseSuppressor noiseSuppressor;
     private AcousticEchoCanceler echoCanceler;
     private short[] chirp;
-    private int startHz = 15000;
-    private int endHz = 19000;
+    private int startHz = 6500;
+    private int endHz = 11500;
     private final float[] recentNearest = {-1f, -1f, -1f};
     private int recentIndex;
     private long lastBeepAt;
@@ -47,8 +47,8 @@ final class SonarEngine {
 
     synchronized void start(boolean highFrequency) {
         if (running) return;
-        startHz = highFrequency ? 17000 : 15000;
-        endHz = highFrequency ? 19800 : 19000;
+        startHz = highFrequency ? 9500 : 6500;
+        endHz = highFrequency ? 14500 : 11500;
         running = true;
         worker = new Thread(this::runSonar, "Skaner-Sonar");
         worker.start();
@@ -70,7 +70,7 @@ final class SonarEngine {
     private void runSonar() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
         try {
-            chirp = SonarDsp.makeChirp(SAMPLE_RATE, startHz, endHz, 4);
+            chirp = SonarDsp.makeChirp(SAMPLE_RATE, startHz, endHz, 8);
             int minRecord = AudioRecord.getMinBufferSize(SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
             int minTrack = AudioTrack.getMinBufferSize(SAMPLE_RATE,
@@ -109,7 +109,7 @@ final class SonarEngine {
             if (player.getState() != AudioTrack.STATE_INITIALIZED) {
                 throw new IllegalStateException("Не удалось открыть динамик");
             }
-            player.setVolume(0.92f);
+            player.setVolume(1.0f);
             lastBeepAt = 0L;
             recentNearest[0] = recentNearest[1] = recentNearest[2] = -1f;
             recentIndex = 0;
@@ -135,7 +135,7 @@ final class SonarEngine {
             captureWorker.start();
             listener.onStatus("Идёт акустическое сканирование");
             short[] quietGap = new short[6000]; // 125 ms; gives late room echoes time to reach the mic
-            short[] beep = makeParkingBeep(SAMPLE_RATE, 820, 22);
+            short[] beep = makeParkingBeep(SAMPLE_RATE, 1450, 28);
             short[] beepTail = new short[960];
 
             while (running) {
@@ -208,10 +208,10 @@ final class SonarEngine {
         if (now - lastBeepAt < interval || player == null) return;
         lastBeepAt = now;
         try {
-            player.setVolume(0.13f);
+            player.setVolume(0.22f);
             player.write(beep, 0, beep.length, AudioTrack.WRITE_BLOCKING);
             player.write(tail, 0, tail.length, AudioTrack.WRITE_BLOCKING);
-            player.setVolume(0.92f);
+            player.setVolume(1.0f);
         } catch (Exception ignored) {
             try { if (player != null) player.setVolume(0.92f); } catch (Exception ignoredAgain) { }
         }
