@@ -17,7 +17,7 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Build;
 import android.util.Size;
-import android.view.SurfaceTexture;
+import android.graphics.SurfaceTexture;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
