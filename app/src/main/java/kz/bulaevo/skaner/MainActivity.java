@@ -75,6 +75,8 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
     private int cameraExposureProgress;
     private boolean flashAvailable;
     private boolean torchOn;
+    private boolean monochrome;
+    private int cameraSensorOrientation = 90;
     private boolean cameraOpening;
     private TextView exposureLabel;
     private Button torchButton;
@@ -182,7 +184,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         controls.addView(scanButton, startLp);
         scanButton.setOnClickListener(v -> toggleSonar());
 
-        frequencyButton = makeButton("15–19 кГц", false);
+        frequencyButton = makeButton("6.5–11.5 кГц", false);
         LinearLayout.LayoutParams freqLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
         freqLp.setMargins(dp(5), dp(6), 0, dp(5));
         controls.addView(frequencyButton, freqLp);
@@ -262,9 +264,20 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
             updateTorchUi();
             applyCameraSettings();
         });
-        Button retry = makeButton("ОБНОВИТЬ КАМЕРУ", false);
-        LinearLayout.LayoutParams retryLp = new LinearLayout.LayoutParams(0, dp(44), 1f);
-        retryLp.setMargins(dp(5), dp(4), 0, 0);
+        Button monoButton = makeButton(monochrome ? "Ч/Б: ВКЛ" : "Ч/Б: ВЫКЛ", monochrome);
+        monoButton.setTextSize(10);
+        LinearLayout.LayoutParams monoLp = new LinearLayout.LayoutParams(0, dp(44), 0.85f);
+        monoLp.setMargins(dp(4), dp(4), dp(4), 0);
+        actions.addView(monoButton, monoLp);
+        monoButton.setOnClickListener(v -> {
+            monochrome = !monochrome;
+            monoButton.setText(monochrome ? "Ч/Б: ВКЛ" : "Ч/Б: ВЫКЛ");
+            applyCameraSettings();
+        });
+        Button retry = makeButton("ОБНОВИТЬ", false);
+        retry.setTextSize(10);
+        LinearLayout.LayoutParams retryLp = new LinearLayout.LayoutParams(0, dp(44), 0.8f);
+        retryLp.setMargins(dp(4), dp(4), 0, 0);
         actions.addView(retry, retryLp);
         retry.setOnClickListener(v -> {
             stopCamera();
@@ -354,7 +367,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
 
     private void toggleFrequency() {
         highFrequency = !highFrequency;
-        if (frequencyButton != null) frequencyButton.setText(highFrequency ? "17–20 кГц" : "15–19 кГц");
+        if (frequencyButton != null) frequencyButton.setText(highFrequency ? "9.5–14.5 кГц" : "6.5–11.5 кГц");
         if (scanning) {
             stopSonar();
             startSonar();
@@ -389,7 +402,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
                     if (readingText != null) {
                         if (echoes.length == 0) {
                             readingText.setText(String.format(java.util.Locale.US,
-                                    "Сигнал: %d%%     Отражения: —", Math.round(signalStrength * 100)));
+                                    "Прямой сигнал: %d%%     Эхо: —", Math.round(signalStrength * 100)));
                         } else {
                             StringBuilder distances = new StringBuilder();
                             for (int i = 0; i < Math.min(3, echoes.length); i++) {
@@ -547,6 +560,8 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
             flashAvailable = flash != null && flash;
             android.util.Range<Integer> range =
                     selectedCharacteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE);
+            cameraSensorOrientation = selectedCharacteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) == null
+                    ? 90 : selectedCharacteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
             cameraExposureMin = range == null ? 0 : range.getLower();
             cameraExposureMax = range == null ? 0 : range.getUpper();
             cameraExposureProgress = Math.max(0, Math.min(
@@ -640,6 +655,8 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
             int compensation = Math.max(cameraExposureMin,
                     Math.min(cameraExposureMax, cameraExposureMin + cameraExposureProgress));
             previewRequest.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, compensation);
+            previewRequest.set(CaptureRequest.CONTROL_EFFECT_MODE, monochrome
+                    ? CaptureRequest.CONTROL_EFFECT_MODE_MONO : CaptureRequest.CONTROL_EFFECT_MODE_OFF);
             previewRequest.set(CaptureRequest.FLASH_MODE, torchOn && flashAvailable
                     ? CaptureRequest.FLASH_MODE_TORCH : CaptureRequest.FLASH_MODE_OFF);
             if (cameraSession != null) {
@@ -666,18 +683,27 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
 
     private void configureTransform(int viewWidth, int viewHeight) {
         if (cameraTexture == null || previewSize == null || viewWidth == 0 || viewHeight == 0) return;
-        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+        int displayRotation = getWindowManager().getDefaultDisplay().getRotation();
+        int displayDegrees = displayRotation == Surface.ROTATION_90 ? 90
+                : displayRotation == Surface.ROTATION_180 ? 180
+                : displayRotation == Surface.ROTATION_270 ? 270 : 0;
+        int relativeRotation = (cameraSensorOrientation - displayDegrees + 360) % 360;
         Matrix matrix = new Matrix();
         RectF viewRect = new RectF(0, 0, viewWidth, viewHeight);
-        RectF bufferRect = new RectF(0, 0, previewSize.getHeight(), previewSize.getWidth());
+        boolean swap = relativeRotation == 90 || relativeRotation == 270;
+        RectF bufferRect = swap
+                ? new RectF(0, 0, previewSize.getHeight(), previewSize.getWidth())
+                : new RectF(0, 0, previewSize.getWidth(), previewSize.getHeight());
         float centerX = viewRect.centerX();
         float centerY = viewRect.centerY();
         bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY());
         matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL);
-        float scale = Math.max((float) viewHeight / previewSize.getHeight(),
-                (float) viewWidth / previewSize.getWidth());
+        float rotatedWidth = swap ? previewSize.getHeight() : previewSize.getWidth();
+        float rotatedHeight = swap ? previewSize.getWidth() : previewSize.getHeight();
+        float scale = Math.max((float) viewHeight / rotatedHeight,
+                (float) viewWidth / rotatedWidth);
         matrix.postScale(scale, scale, centerX, centerY);
-        matrix.postRotate(90f * (rotation - 2), centerX, centerY);
+        matrix.postRotate(relativeRotation, centerX, centerY);
         cameraTexture.setTransform(matrix);
     }
 
