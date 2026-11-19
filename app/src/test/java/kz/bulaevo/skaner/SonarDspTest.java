@@ -48,6 +48,25 @@ public class SonarDspTest {
     }
 
     @Test
+    public void twoEchoesAreResolvedAtCorrectPhysicalDistances() {
+        int sampleRate = 48000;
+        short[] chirp = SonarDsp.makeChirp(sampleRate, 16000, 19500, 4);
+        short[] signal = new short[24000];
+        int directAt = 1400;
+        int nearDelay = (int) Math.round(2.0 * 0.65 * sampleRate / 343.0);
+        int farDelay = (int) Math.round(2.0 * 2.10 * sampleRate / 343.0);
+        for (int i = 0; i < chirp.length; i++) {
+            signal[directAt + i] = (short) (chirp[i] * 0.8);
+            signal[directAt + nearDelay + i] = (short) (chirp[i] * 0.30);
+            signal[directAt + farDelay + i] = (short) (chirp[i] * 0.24);
+        }
+        SonarDsp.Echo[] echoes = SonarDsp.detect(signal, chirp, sampleRate);
+        assertTrue("expected near and far echoes", echoes.length >= 2);
+        assertTrue(Math.abs(echoes[0].distanceMeters - 0.65) < 0.12);
+        assertTrue(Math.abs(echoes[1].distanceMeters - 2.10) < 0.12);
+    }
+
+    @Test
     public void silenceDoesNotCreateEchoes() {
         int sampleRate = 48000;
         short[] chirp = SonarDsp.makeChirp(sampleRate, 16000, 19500, 4);
