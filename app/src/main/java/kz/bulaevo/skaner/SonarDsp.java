@@ -63,7 +63,7 @@ final class SonarDsp {
         if (templateEnergy < 0.000001) return new Analysis(new Echo[0], 0f);
 
         int decimatedLength = signal.length / DECIMATION;
-        int candidateCount = (decimatedLength - templateLength) / 2;
+        int candidateCount = decimatedLength - templateLength;
         if (candidateCount < 8) return new Analysis(new Echo[0], 0f);
         float[] scores = new float[candidateCount];
         int strongestIndex = -1;
@@ -72,7 +72,7 @@ final class SonarDsp {
                 Math.max(8, (int) (sampleRate * 0.24 / DECIMATION / 2.0)));
 
         for (int candidate = 0; candidate <= directSearchLimit; candidate++) {
-            int start = candidate * 2;
+            int start = candidate;
             double dot = 0.0, energy = 0.0;
             for (int j = 0; j < templateLength; j++) {
                 double value = signal[(start + j) * DECIMATION] / 32768.0;
@@ -91,15 +91,15 @@ final class SonarDsp {
             return new Analysis(new Echo[0], strongest);
         }
 
-        int minDelta = Math.max(1, (int) Math.ceil(sampleRate * 0.24 / SPEED_OF_SOUND / 2.0));
-        int maxDelta = (int) (sampleRate * 6.5 / SPEED_OF_SOUND / 2.0);
+        int minDelta = Math.max(1, (int) Math.ceil(sampleRate * 0.24 / SPEED_OF_SOUND));
+        int maxDelta = (int) (sampleRate * 6.5 / SPEED_OF_SOUND);
         int first = Math.max(strongestIndex + minDelta, 1);
         int last = Math.min(candidateCount - 2, strongestIndex + maxDelta);
         float threshold = Math.max(0.055f, strongest * 0.075f);
         List<Echo> found = new ArrayList<>();
 
         for (int i = first; i <= last; i++) {
-            int start = i * 2;
+            int start = i;
             double dot = 0.0, energy = 0.0;
             for (int j = 0; j < templateLength; j++) {
                 double value = signal[(start + j) * DECIMATION] / 32768.0;
@@ -111,7 +111,7 @@ final class SonarDsp {
             scores[i] = score;
             if (score < threshold || score < scores[i - 1]) continue;
 
-            int nextStart = (i + 1) * 2;
+            int nextStart = i + 1;
             double nextDot = 0.0, nextEnergy = 0.0;
             for (int j = 0; j < templateLength; j++) {
                 double value = signal[(nextStart + j) * DECIMATION] / 32768.0;
@@ -123,7 +123,7 @@ final class SonarDsp {
             scores[i + 1] = nextScore;
             if (score < nextScore) continue;
 
-            double range = (double) (i - strongestIndex) * 2.0 * SPEED_OF_SOUND / sampleRate;
+            double range = (double) (i - strongestIndex) * SPEED_OF_SOUND / sampleRate;
             if (range >= 0.24 && range <= 6.5) found.add(new Echo((float) range, score));
         }
 
