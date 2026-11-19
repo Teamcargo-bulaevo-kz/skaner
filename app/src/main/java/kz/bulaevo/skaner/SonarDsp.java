@@ -18,7 +18,7 @@ import java.util.List;
 final class SonarDsp {
     private static final double SPEED_OF_SOUND = 343.0;
     private static final double DIRECT_LATENCY_WINDOW_SECONDS = 0.080;
-    private static final double MIN_RANGE_METERS = 0.24;
+    private static final double MIN_RANGE_METERS = 0.18;
     private static final double MAX_RANGE_METERS = 6.5;
 
     static final class Echo {
@@ -105,13 +105,13 @@ final class SonarDsp {
         for (int i = 0; i <= directSearchLimit; i++) {
             strongestDirect = Math.max(strongestDirect, scores[i]);
         }
-        if (strongestDirect < 0.10f) {
+        if (strongestDirect < 0.045f) {
             return new Analysis(new Echo[0], strongestDirect);
         }
 
         // Use the first credible local maximum, not the strongest arbitrary
         // peak. The latter may be a nearby wall reflection and shifts every range.
-        float directFloor = Math.max(0.12f, strongestDirect * 0.58f);
+        float directFloor = Math.max(0.055f, strongestDirect * 0.52f);
         int directIndex = -1;
         for (int i = 1; i < directSearchLimit; i++) {
             if (scores[i] >= directFloor && scores[i] > scores[i - 1]
@@ -127,7 +127,7 @@ final class SonarDsp {
             }
             directIndex = strongestIndex;
         }
-        if (directIndex < 0 || scores[directIndex] < 0.10f) {
+        if (directIndex < 0 || scores[directIndex] < 0.045f) {
             return new Analysis(new Echo[0], strongestDirect);
         }
 
@@ -141,16 +141,16 @@ final class SonarDsp {
         Arrays.sort(noiseScores);
         float p99 = noiseScores[Math.min(noiseScores.length - 1,
                 (int) Math.floor((noiseScores.length - 1) * 0.99))];
-        float threshold = Math.max(0.28f, p99 + 0.06f);
+        float threshold = Math.max(0.075f, p99 + 0.018f);
         double directEnergy = Math.max(1.0e-12, energies[directIndex]);
 
         List<Echo> found = new ArrayList<>();
         for (int i = first + 1; i < last; i++) {
             float score = scores[i];
             if (score < threshold || score <= scores[i - 1] || score < scores[i + 1]) continue;
-            if (score - Math.max(scores[i - 1], scores[i + 1]) < 0.025f) continue;
+            if (score - Math.max(scores[i - 1], scores[i + 1]) < 0.008f) continue;
             // Normalized correlation alone can rate tiny noise as a good match.
-            if (energies[i] < directEnergy * 0.00002) continue;
+            if (energies[i] < directEnergy * 0.000001) continue;
 
             double fraction = parabolicOffset(scores[i - 1], score, scores[i + 1]);
             double lag = (i + fraction) - directIndex;
@@ -170,7 +170,7 @@ final class SonarDsp {
         for (Echo candidate : found) {
             boolean duplicate = false;
             for (Echo kept : filtered) {
-                if (Math.abs(candidate.distanceMeters - kept.distanceMeters) < 0.22f) {
+                if (Math.abs(candidate.distanceMeters - kept.distanceMeters) < 0.16f) {
                     duplicate = true;
                     break;
                 }
