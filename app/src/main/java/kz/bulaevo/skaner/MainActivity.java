@@ -68,6 +68,9 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
     private Vibrator vibrator;
     private long lastHapticAt;
     private HardwareDiagnosticsView diagnosticsView;
+    private TextView walkDistanceText;
+    private TextView walkAdviceText;
+    private Button walkScanButton;
     private int currentPage;
 
     private TextureView cameraTexture;
@@ -135,11 +138,12 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         currentPage = page;
         if (diagnosticsView != null) diagnosticsView.stop();
         stopCamera();
-        if (page != 0) stopSonar();
+        if (page != 0 && page != 3) stopSonar();
         pageHost.removeAllViews();
         if (page == 0) pageHost.addView(buildRadarPage());
         else if (page == 1) pageHost.addView(buildNightPage());
         else if (page == 2) pageHost.addView(buildInfoPage());
+        else if (page == 3) pageHost.addView(buildWalkPage());
         else {
             diagnosticsView = new HardwareDiagnosticsView(this);
             pageHost.addView(diagnosticsView);
@@ -159,7 +163,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         if (root == null || root.getChildCount() < 3) return;
         LinearLayout navigation = (LinearLayout) root.getChildAt(2);
         navigation.removeAllViews();
-        String[] names = {"РАДАР", "НОЧЬ", "О ПРОЕКТЕ", "ДАТЧИКИ"};
+        String[] names = {"РАДАР", "НОЧЬ", "О ПРОЕКТЕ", "ХОДЬБА", "ДАТЧИКИ"};
         for (int i = 0; i < names.length; i++) {
             final int target = i;
             Button button = makeButton(names[i], i == currentPage);
@@ -229,6 +233,91 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         page.addView(note, new LinearLayout.LayoutParams(-1, dp(32)));
         updateScanUi();
         return page;
+    }
+
+    private View buildWalkPage() {
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(dp(12), dp(7), dp(12), dp(8));
+
+        statusText = label("РЕЖИМ ОРИЕНТИРОВАНИЯ", 11, GREEN, true);
+        page.addView(statusText, new LinearLayout.LayoutParams(-1, dp(25)));
+
+        walkDistanceText = label("ВПЕРЕДИ: НЕТ ДАННЫХ", 25, TEXT, true);
+        walkDistanceText.setGravity(Gravity.CENTER);
+        page.addView(walkDistanceText, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        walkAdviceText = label("Медленно поворачивайте телефон влево-вправо, чтобы собрать данные по секторам.", 12, MUTED, false);
+        walkAdviceText.setGravity(Gravity.CENTER);
+        walkAdviceText.setMinLines(2);
+        page.addView(walkAdviceText, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        radarView = new RadarView(this);
+        radarView.setHeading(heading);
+        radarView.setMaxRange(maxRangeMeters);
+        radarView.setHint("СКАНИРУЙТЕ ВПЕРЁД И ПО БОКАМ");
+        LinearLayout.LayoutParams mapLp = new LinearLayout.LayoutParams(-1, 0, 1f);
+        mapLp.topMargin = dp(3);
+        mapLp.bottomMargin = dp(5);
+        page.addView(radarView, mapLp);
+
+        LinearLayout controls = new LinearLayout(this);
+        controls.setGravity(Gravity.CENTER);
+        walkScanButton = makeButton(scanning ? "ОСТАНОВИТЬ" : "НАЧАТЬ СКАНИРОВАНИЕ", scanning);
+        LinearLayout.LayoutParams scanLp = new LinearLayout.LayoutParams(0, dp(46), 1.3f);
+        scanLp.setMargins(0, 0, dp(5), 0);
+        controls.addView(walkScanButton, scanLp);
+        walkScanButton.setOnClickListener(v -> toggleSonar());
+
+        Button clear = makeButton("ОЧИСТИТЬ", false);
+        LinearLayout.LayoutParams clearLp = new LinearLayout.LayoutParams(0, dp(46), 1f);
+        clearLp.setMargins(dp(5), 0, 0, 0);
+        controls.addView(clear, clearLp);
+        clear.setOnClickListener(v -> {
+            if (radarView != null) radarView.clearMap();
+            updateWalkUi();
+        });
+        page.addView(controls, new LinearLayout.LayoutParams(-1, dp(50)));
+
+        TextView note = label("Телефон держите нижним динамиком вперёд. Подсказка строится только по недавно измеренным направлениям; это экспериментальный ориентир, не система предотвращения столкновений.", 10, MUTED, false);
+        note.setPadding(dp(2), dp(5), dp(2), 0);
+        page.addView(note, new LinearLayout.LayoutParams(-1, dp(45)));
+        updateWalkUi();
+        return page;
+    }
+
+    private void updateWalkUi() {
+        if (walkDistanceText == null || walkAdviceText == null || radarView == null) return;
+        if (!scanning) {
+            walkDistanceText.setText("СКАНЕР ВЫКЛЮЧЕН");
+            walkDistanceText.setTextColor(MUTED);
+            walkAdviceText.setText("Запустите сканирование и медленно проведите телефоном по сторонам.");
+            return;
+        }
+        float nearest = radarView.nearestInCone(heading, 18f);
+        double clearer = radarView.clearestDirection(heading, 70f, 16f);
+        if (Float.isNaN(nearest)) {
+            walkDistanceText.setText("ВПЕРЕДИ: НЕТ ПОДТВЕРЖДЁННОГО ЭХА");
+            walkDistanceText.setTextColor(MUTED);
+            walkAdviceText.setText("Это не означает, что путь свободен. Сначала просканируйте сектор перед собой и по сторонам.");
+        } else {
+            walkDistanceText.setText(String.format(java.util.Locale.US, "ВПЕРЕДИ: %.1f м", nearest));
+            walkDistanceText.setTextColor(nearest < 0.9f ? 0xFFFF806D : (nearest < 2.2f ? 0xFFFFC078 : GREEN));
+            if (nearest < 0.9f) {
+                walkAdviceText.setText("Близкое отражение. Остановитесь и проверьте пространство визуально.");
+            } else if (nearest < 2.2f) {
+                walkAdviceText.setText("Впереди отражение. Не ускоряйтесь; проверьте соседние направления.");
+            } else {
+                walkAdviceText.setText("Близкое препятствие не подтверждено в узком секторе впереди.");
+            }
+        }
+        if (!Double.isNaN(clearer) && Math.abs(clearer) >= 12.0) {
+            String side = clearer > 0 ? "правее" : "левее";
+            walkAdviceText.append(String.format(java.util.Locale.US,
+                    "\nПо измеренным секторам свободнее %s на %.0f°.", side, Math.abs(clearer)));
+        } else if (Float.isNaN(nearest) || nearest < 2.2f) {
+            walkAdviceText.append("\nНедостаточно данных для надёжной подсказки обхода.");
+        }
     }
 
     private View buildNightPage() {
@@ -406,7 +495,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
     }
 
     private void startSonar() {
-        if (scanning || currentPage != 0) return;
+        if (scanning || (currentPage != 0 && currentPage != 3)) return;
         scanning = true;
         updateScanUi();
         sonarEngine = new SonarEngine(new SonarEngine.Listener() {
@@ -421,6 +510,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
                     if (!scanning || radarView == null) return;
                     radarView.setHeading(heading);
                     radarView.addMeasurement(heading, echoes);
+                    if (currentPage == 3) updateWalkUi();
                     if (readingText != null) {
                         if (echoes.length == 0) {
                             readingText.setText(String.format(java.util.Locale.US,
@@ -496,6 +586,11 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
             scanButton.setText(scanning ? "ОСТАНОВИТЬ" : "НАЧАТЬ СКАНИРОВАНИЕ");
             scanButton.setTextColor(scanning ? 0xFFFFB07A : GREEN);
         }
+        if (walkScanButton != null) {
+            walkScanButton.setText(scanning ? "ОСТАНОВИТЬ" : "НАЧАТЬ СКАНИРОВАНИЕ");
+            walkScanButton.setTextColor(scanning ? 0xFFFFB07A : GREEN);
+        }
+        if (walkDistanceText != null && !scanning) updateWalkUi();
     }
 
     private TextView label(String text, int size, int color, boolean bold) {
@@ -533,7 +628,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
             sensorManager.registerListener(this, rotationSensor, SensorManager.SENSOR_DELAY_GAME);
         }
         if (currentPage == 1 && cameraTexture != null) cameraTexture.post(this::startCameraIfReady);
-        if (currentPage == 3 && diagnosticsView != null) diagnosticsView.start();
+        if (currentPage == 4 && diagnosticsView != null) diagnosticsView.start();
     }
 
     @Override protected void onPause() {
