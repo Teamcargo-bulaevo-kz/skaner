@@ -91,8 +91,8 @@ final class SonarDsp {
             return new Analysis(new Echo[0], strongest);
         }
 
-        int minDelta = Math.max(1, (int) Math.ceil(sampleRate * 0.24 / SPEED_OF_SOUND / DECIMATION));
-        int maxDelta = (int) (sampleRate * 6.5 / SPEED_OF_SOUND / DECIMATION);
+        int minDelta = Math.max(1, (int) Math.ceil(sampleRate * 0.24 / SPEED_OF_SOUND));
+        int maxDelta = (int) (sampleRate * 6.5 / SPEED_OF_SOUND);
         int first = Math.max(strongestIndex + minDelta, 1);
         int last = Math.min(candidateCount - 2, strongestIndex + maxDelta);
         float threshold = Math.max(0.055f, strongest * 0.075f);
@@ -123,7 +123,7 @@ final class SonarDsp {
             scores[i + 1] = nextScore;
             if (score < nextScore) continue;
 
-            double range = (double) (i - strongestIndex) * DECIMATION * SPEED_OF_SOUND / sampleRate;
+            double range = (double) (i - strongestIndex) * SPEED_OF_SOUND / sampleRate;
             if (range >= 0.24 && range <= 6.5) found.add(new Echo((float) range, score));
         }
 
