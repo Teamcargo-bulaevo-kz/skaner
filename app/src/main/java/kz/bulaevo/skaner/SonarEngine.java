@@ -17,6 +17,7 @@ final class SonarEngine {
     interface Listener {
         void onStatus(String status);
         void onMeasurement(SonarDsp.Echo[] echoes, float signalStrength);
+        void onProximityAlert(float distanceMeters);
         void onError(String message);
     }
 
@@ -209,6 +210,7 @@ final class SonarEngine {
         else interval = 850;
         if (now - lastBeepAt < interval || player == null) return;
         lastBeepAt = now;
+        listener.onProximityAlert(distance);
         try {
             player.setVolume(0.18f);
             player.write(tick, 0, tick.length, AudioTrack.WRITE_BLOCKING);
