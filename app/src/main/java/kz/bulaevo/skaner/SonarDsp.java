@@ -19,7 +19,7 @@ final class SonarDsp {
     private static final double SPEED_OF_SOUND = 343.0;
     private static final double DIRECT_LATENCY_WINDOW_SECONDS = 0.080;
     private static final double MIN_RANGE_METERS = 0.18;
-    private static final double MAX_RANGE_METERS = 6.5;
+    private static final double MAX_RANGE_METERS = 10.0;
 
     static final class Echo {
         final float distanceMeters;
@@ -50,7 +50,7 @@ final class SonarDsp {
             double frequency = startHz + (endHz - startHz) * t;
             phase += 2.0 * Math.PI * frequency / sampleRate;
             double window = 0.5 - 0.5 * Math.cos(2.0 * Math.PI * i / (count - 1));
-            result[i] = (short) (Math.sin(phase) * window * 30000.0);
+            result[i] = (short) (Math.sin(phase) * window * 18000.0);
         }
         return result;
     }
@@ -60,6 +60,12 @@ final class SonarDsp {
     }
 
     static Analysis analyze(short[] signal, short[] reference, int sampleRate) {
+        return analyze(signal, reference, sampleRate, (float) MAX_RANGE_METERS);
+    }
+
+    static Analysis analyze(short[] signal, short[] reference, int sampleRate, float maxRangeMeters) {
+        maxRangeMeters = Math.max((float) MIN_RANGE_METERS,
+                Math.min((float) MAX_RANGE_METERS, maxRangeMeters));
         if (signal == null || reference == null || sampleRate <= 0
                 || signal.length < reference.length * 2 || reference.length < 128) {
             return new Analysis(new Echo[0], 0f);
@@ -82,7 +88,7 @@ final class SonarDsp {
         int directSearchLimit = Math.min(candidateCount - 2,
                 Math.max(8, (int) Math.ceil(sampleRate
                         * DIRECT_LATENCY_WINDOW_SECONDS)));
-        int maxRangeLag = (int) Math.ceil(2.0 * sampleRate * MAX_RANGE_METERS / SPEED_OF_SOUND);
+        int maxRangeLag = (int) Math.ceil(2.0 * sampleRate * maxRangeMeters / SPEED_OF_SOUND);
         int lastSearch = Math.min(candidateCount - 2, directSearchLimit + maxRangeLag);
         float[] scores = new float[lastSearch + 2];
         double[] energies = new double[lastSearch + 2];
@@ -155,7 +161,7 @@ final class SonarDsp {
             double fraction = parabolicOffset(scores[i - 1], score, scores[i + 1]);
             double lag = (i + fraction) - directIndex;
             double range = lag * SPEED_OF_SOUND / (2.0 * sampleRate);
-            if (range >= MIN_RANGE_METERS && range <= MAX_RANGE_METERS) {
+            if (range >= MIN_RANGE_METERS && range <= maxRangeMeters) {
                 found.add(new Echo((float) range, score));
             }
         }
