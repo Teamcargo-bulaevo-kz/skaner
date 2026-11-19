@@ -25,6 +25,8 @@ import android.media.AudioManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.util.Size;
 import android.util.Rational;
 import android.view.Gravity;
@@ -63,6 +65,8 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
     private SonarEngine sonarEngine;
     private SensorManager sensorManager;
     private Sensor rotationSensor;
+    private Vibrator vibrator;
+    private long lastHapticAt;
     private HardwareDiagnosticsView diagnosticsView;
     private int currentPage;
 
@@ -94,6 +98,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         rotationSensor = sensorManager == null ? null
                 : sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
 
@@ -432,6 +437,9 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
                     }
                 });
             }
+            @Override public void onProximityAlert(float distanceMeters) {
+                runOnUiThread(() -> vibrateForProximity(distanceMeters));
+            }
             @Override public void onError(String message) {
                 runOnUiThread(() -> {
                     scanning = false;
@@ -443,6 +451,32 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
             }
         });
         sonarEngine.start(longRangeMode);
+    }
+
+    private void vibrateForProximity(float distanceMeters) {
+        if (vibrator == null || !vibrator.hasVibrator() || distanceMeters > 1.5f) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastHapticAt < 450L) return;
+        lastHapticAt = now;
+        long duration;
+        int amplitude;
+        if (distanceMeters <= 0.65f) {
+            duration = 85L;
+            amplitude = 220;
+        } else if (distanceMeters <= 1.1f) {
+            duration = 60L;
+            amplitude = 150;
+        } else {
+            duration = 38L;
+            amplitude = 90;
+        }
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                vibrator.vibrate(VibrationEffect.createOneShot(duration, amplitude));
+            } else {
+                vibrator.vibrate(duration);
+            }
+        } catch (Exception ignored) { }
     }
 
     private void stopSonar() {
