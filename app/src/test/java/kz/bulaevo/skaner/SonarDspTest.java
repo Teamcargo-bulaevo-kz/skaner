@@ -10,7 +10,7 @@ public class SonarDspTest {
         short[] chirp = SonarDsp.makeChirp(sampleRate, 16000, 19500, 24);
         short[] signal = new short[18000];
         int directAt = 1800;
-        int echoDelay = (int) Math.round(sampleRate / 343.0);
+        int echoDelay = (int) Math.round(2.0 * sampleRate / 343.0);
         for (int i = 0; i < chirp.length; i++) {
             signal[directAt + i] = (short) (chirp[i] * 0.75);
             int echoAt = directAt + echoDelay + i;
