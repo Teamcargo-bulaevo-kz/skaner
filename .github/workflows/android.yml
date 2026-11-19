@@ -23,9 +23,14 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+      - name: Install Android SDK platform
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
       - name: Build and unit tests
         run: gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug
       - name: Upload APK
@@ -47,6 +52,8 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - uses: actions/download-artifact@v4
         with:
           name: Skaner-APK
