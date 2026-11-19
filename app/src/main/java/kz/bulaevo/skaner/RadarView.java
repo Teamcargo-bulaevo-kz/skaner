@@ -3,70 +3,55 @@ package kz.bulaevo.skaner;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Typeface;
 import android.view.View;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.Iterator;
-import java.util.List;
 
 /**
- * Polar occupancy sketch. A return is drawn only after it repeats in at least
- * three observations from the same bearing sector; raw single-frame peaks
- * are deliberately not painted as objects.
+ * Conservative polar sketch: one nearest, repeatable return per bearing sector.
+ * A burst of frames in one direction is time-throttled so it cannot create
+ * dozens of dots from the same multipath pattern.
  */
 final class RadarView extends View {
     private static final int BG = 0xFF081311;
     private static final int GRID = 0xFF1A4439;
     private static final int ACCENT = 0xFF69E5B5;
-    private static final float ANGLE_BIN_DEGREES = 6f;
-    private static final int SECTOR_COUNT = 60;
-    private static final int HISTORY_LIMIT = 7;
-    private static final long HISTORY_AGE_MS = 1400L;
+    private static final float BIN_DEGREES = 8f;
+    private static final int SECTOR_COUNT = 45;
+    private static final int HISTORY_LIMIT = 12;
+    private static final long MIN_SAMPLE_SPACING_MS = 120L;
+    private static final long HISTORY_AGE_MS = 2600L;
+    private static final float MAX_RANGE = 6.5f;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final List<Point> points = new ArrayList<>();
-    private final SectorHistory[] histories = new SectorHistory[SECTOR_COUNT];
+    private final Sector[] sectors = new Sector[SECTOR_COUNT];
     private float heading;
-    private final float maxRange = 6.5f;
-    private String hint = "ПОВОРАЧИВАЙТЕ ТЕЛЕФОН МЕДЛЕННО";
+    private String hint = "МЕДЛЕННО ПОВОРАЧИВАЙТЕ ТЕЛЕФОН";
     private long lastFrame;
 
-    private static final class Observation {
-        final float[] distances;
+    private static final class Sample {
+        final float distance;
         final long time;
-        Observation(float[] distances, long time) {
-            this.distances = distances;
-            this.time = time;
-        }
+        Sample(float distance, long time) { this.distance = distance; this.time = time; }
     }
 
-    private static final class SectorHistory {
-        final ArrayDeque<Observation> observations = new ArrayDeque<>();
-    }
-
-    private static final class Point {
-        float bearing;
-        float range;
-        float strength;
+    private static final class Sector {
+        final ArrayDeque<Sample> samples = new ArrayDeque<>();
+        float distance = -1f;
         int confirmations;
-        long time;
-        Point(float bearing, float range, float strength, long time) {
-            this.bearing = bearing;
-            this.range = range;
-            this.strength = strength;
-            this.time = time;
-            this.confirmations = 1;
-        }
+        long updatedAt;
+        long lastSampleAt;
     }
 
     RadarView(Context context) {
         super(context);
         setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         setBackgroundColor(BG);
-        for (int i = 0; i < histories.length; i++) histories[i] = new SectorHistory();
+        for (int i = 0; i < sectors.length; i++) sectors[i] = new Sector();
     }
 
     void setHeading(float value) {
@@ -80,111 +65,82 @@ final class RadarView extends View {
     }
 
     void clearMap() {
-        points.clear();
-        for (SectorHistory history : histories) history.observations.clear();
+        for (Sector sector : sectors) {
+            sector.samples.clear();
+            sector.distance = -1f;
+            sector.confirmations = 0;
+            sector.updatedAt = 0L;
+            sector.lastSampleAt = 0L;
+        }
         invalidate();
     }
 
     void addMeasurement(float bearing, SonarDsp.Echo[] echoes) {
         long now = System.currentTimeMillis();
-        float normalizedBearing = normalize(bearing);
-        int sector = (int) Math.floor((normalizedBearing + ANGLE_BIN_DEGREES * 0.5f)
-                / ANGLE_BIN_DEGREES) % SECTOR_COUNT;
-        SectorHistory history = histories[sector];
+        int index = (int) Math.floor((normalize(bearing) + BIN_DEGREES * 0.5f)
+                / BIN_DEGREES) % SECTOR_COUNT;
+        Sector sector = sectors[index];
 
-        float[] distances = new float[echoes == null ? 0 : echoes.length];
-        int validCount = 0;
+        // Keep only the nearest credible return. Later echoes are commonly
+        // multipath reflections from the same wall and inflate the point cloud.
+        float nearest = -1f;
         if (echoes != null) {
             for (SonarDsp.Echo echo : echoes) {
-                if (echo.distanceMeters >= 0.24f && echo.distanceMeters <= maxRange) {
-                    distances[validCount++] = echo.distanceMeters;
+                if (echo != null && echo.strength >= 0.20f
+                        && echo.distanceMeters >= 0.24f && echo.distanceMeters <= MAX_RANGE
+                        && (nearest < 0f || echo.distanceMeters < nearest)) {
+                    nearest = echo.distanceMeters;
                 }
             }
         }
-        float[] validDistances = new float[validCount];
-        System.arraycopy(distances, 0, validDistances, 0, validCount);
-        history.observations.addLast(new Observation(validDistances, now));
-        while (history.observations.size() > HISTORY_LIMIT) history.observations.removeFirst();
-        while (!history.observations.isEmpty()
-                && now - history.observations.peekFirst().time > HISTORY_AGE_MS) {
-            history.observations.removeFirst();
-        }
 
-        for (float currentDistance : validDistances) {
-            float[] matches = new float[HISTORY_LIMIT];
-            int matchCount = 0;
-            for (Observation observation : history.observations) {
-                float closest = Float.NaN;
-                float error = 0.20f;
-                for (float observedDistance : observation.distances) {
-                    float difference = Math.abs(observedDistance - currentDistance);
-                    if (difference <= error) {
-                        error = difference;
-                        closest = observedDistance;
-                    }
-                }
-                if (!Float.isNaN(closest)) matches[matchCount++] = closest;
+        if (now - sector.lastSampleAt >= MIN_SAMPLE_SPACING_MS) {
+            sector.lastSampleAt = now;
+            if (nearest > 0f) sector.samples.addLast(new Sample(nearest, now));
+            else if (!sector.samples.isEmpty()) {
+                // Missing returns are not evidence of a surface; let old data age out.
             }
-            if (matchCount < 3) continue;
-            float stableDistance = median(matches, matchCount);
-            updateMapPoint(sector * ANGLE_BIN_DEGREES, stableDistance, 0.5f, now);
         }
 
-        Iterator<Point> iterator = points.iterator();
-        while (iterator.hasNext()) {
-            if (now - iterator.next().time > 30000L) iterator.remove();
+        while (!sector.samples.isEmpty()
+                && now - sector.samples.peekFirst().time > HISTORY_AGE_MS) {
+            sector.samples.removeFirst();
         }
-        while (points.size() > 120) points.remove(0);
+
+        if (sector.samples.size() >= 4) {
+            float[] values = new float[sector.samples.size()];
+            int n = 0;
+            for (Sample sample : sector.samples) values[n++] = sample.distance;
+            Arrays.sort(values);
+            float median = median(values);
+            float[] deviations = new float[n];
+            for (int i = 0; i < n; i++) deviations[i] = Math.abs(values[i] - median);
+            Arrays.sort(deviations);
+            float mad = median(deviations);
+            // Reject unstable multipath peaks instead of painting them as objects.
+            if (mad <= 0.16f && values[n - 1] - values[0] <= 0.55f) {
+                sector.distance = median;
+                sector.confirmations = n;
+                sector.updatedAt = now;
+            }
+        }
+
+        for (Sector item : sectors) {
+            if (item.distance > 0f && now - item.updatedAt > 12000L) {
+                item.distance = -1f;
+                item.confirmations = 0;
+            }
+        }
         invalidate();
     }
 
-    private void updateMapPoint(float bearing, float range, float strength, long now) {
-        Point closest = null;
-        float best = Float.MAX_VALUE;
-        for (Point point : points) {
-            float angleDifference = angularDifference(point.bearing, bearing);
-            float rangeDifference = Math.abs(point.range - range);
-            if (angleDifference <= ANGLE_BIN_DEGREES * 1.6f && rangeDifference <= 0.26f) {
-                float score = rangeDifference + angleDifference * 0.003f;
-                if (score < best) {
-                    best = score;
-                    closest = point;
-                }
-            }
-        }
-        if (closest == null) {
-            points.add(new Point(bearing, range, strength, now));
-        } else {
-            closest.bearing = circularBlend(closest.bearing, bearing, 0.35f);
-            closest.range = closest.range * 0.35f + range * 0.65f;
-            closest.strength = Math.max(closest.strength, strength);
-            closest.confirmations = Math.min(20, closest.confirmations + 1);
-            closest.time = now;
-        }
-    }
-
-    private static float median(float[] values, int count) {
-        float[] copy = new float[count];
-        System.arraycopy(values, 0, copy, 0, count);
-        java.util.Arrays.sort(copy);
-        if ((count & 1) == 1) return copy[count / 2];
-        return (copy[count / 2 - 1] + copy[count / 2]) * 0.5f;
+    private static float median(float[] values) {
+        int n = values.length;
+        return (n & 1) == 1 ? values[n / 2] : (values[n / 2 - 1] + values[n / 2]) * 0.5f;
     }
 
     private static float normalize(float angle) {
         return (angle % 360f + 360f) % 360f;
-    }
-
-    private static float angularDifference(float a, float b) {
-        float difference = Math.abs(normalize(a) - normalize(b));
-        return Math.min(difference, 360f - difference);
-    }
-
-    private static float circularBlend(float a, float b, float amount) {
-        double ar = Math.toRadians(a), br = Math.toRadians(b);
-        double x = (1.0 - amount) * Math.cos(ar) + amount * Math.cos(br);
-        double y = (1.0 - amount) * Math.sin(ar) + amount * Math.sin(br);
-        return normalize((float) Math.toDegrees(Math.atan2(y, x)));
     }
 
     @Override protected void onDraw(Canvas canvas) {
@@ -198,9 +154,7 @@ final class RadarView extends View {
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(1f);
         paint.setColor(GRID);
-        for (int ring = 1; ring <= 6; ring++) {
-            canvas.drawCircle(cx, cy, radius * ring / 6f, paint);
-        }
+        for (int ring = 1; ring <= 6; ring++) canvas.drawCircle(cx, cy, radius * ring / 6f, paint);
         for (int angle = 0; angle < 360; angle += 30) {
             float radians = (float) Math.toRadians(angle - 90);
             canvas.drawLine(cx, cy, cx + (float) Math.cos(radians) * radius,
@@ -221,24 +175,39 @@ final class RadarView extends View {
         canvas.drawText("W", cx - radius - 17, cy + 4, paint);
 
         long now = System.currentTimeMillis();
-        Iterator<Point> iterator = points.iterator();
-        while (iterator.hasNext()) {
-            Point point = iterator.next();
-            long age = now - point.time;
-            if (age > 30000L) {
-                iterator.remove();
+        Path contour = new Path();
+        boolean hasPrevious = false;
+        float previousX = 0f, previousY = 0f;
+        int previousIndex = -2;
+        for (int i = 0; i < sectors.length; i++) {
+            Sector sector = sectors[i];
+            if (sector.distance <= 0f || now - sector.updatedAt > 12000L) {
+                hasPrevious = false;
+                previousIndex = -2;
                 continue;
             }
-            float r = radius * point.range / maxRange;
-            float angle = (float) Math.toRadians(point.bearing - 90.0);
+            float r = radius * sector.distance / MAX_RANGE;
+            float angle = (float) Math.toRadians(i * BIN_DEGREES - 90.0);
             float x = cx + (float) Math.cos(angle) * r;
             float y = cy + (float) Math.sin(angle) * r;
-            int alpha = (int) (Math.max(0.18, 1.0 - age / 35000.0) * 210);
-            float dot = 3.0f + Math.min(3.0f, point.confirmations * 0.22f);
+            int alpha = (int) (Math.max(0.20, 1.0 - (now - sector.updatedAt) / 15000.0) * 220);
+            float dot = 3.0f + Math.min(2.5f, sector.confirmations * 0.18f);
             paint.setColor((alpha << 24) | 0x006FE2B1);
-            canvas.drawCircle(x, y, dot * 1.8f, paint);
+            canvas.drawCircle(x, y, dot * 1.7f, paint);
             paint.setColor((alpha << 24) | 0x006FFFCB);
-            canvas.drawCircle(x, y, dot * 0.72f, paint);
+            canvas.drawCircle(x, y, dot * 0.65f, paint);
+
+            if (hasPrevious && i == previousIndex + 1) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor((alpha << 24) | 0x0069E5B5);
+                canvas.drawLine(previousX, previousY, x, y, paint);
+                paint.setStyle(Paint.Style.FILL);
+            }
+            previousX = x;
+            previousY = y;
+            previousIndex = i;
+            hasPrevious = true;
         }
 
         float sweep = (float) Math.toRadians(heading - 90.0);
