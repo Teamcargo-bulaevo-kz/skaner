@@ -581,7 +581,9 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
                     ? 90 : selectedCharacteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
             cameraExposureMin = range == null ? 0 : range.getLower();
             cameraExposureMax = range == null ? 0 : range.getUpper();
-            cameraExposureProgress = Math.max(0, cameraExposureMax - cameraExposureMin);
+            // AE compensation is expressed in steps from the minimum supported value.
+            // Start at 0 EV (neutral), not at the maximum positive compensation.
+            cameraExposureProgress = Math.max(0, Math.min(cameraExposureMax - cameraExposureMin, -cameraExposureMin));
             if (exposureSeekBar != null) {
                 exposureSeekBar.setMax(Math.max(1, cameraExposureMax - cameraExposureMin));
                 exposureSeekBar.setProgress(cameraExposureProgress);
