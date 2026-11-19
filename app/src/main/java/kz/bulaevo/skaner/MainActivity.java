@@ -292,11 +292,55 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         addInfoBlock(page, "НОЧНОЙ РЕЖИМ",
                 "Камера использует возможности автоэкспозиции телефона и компенсацию экспозиции. Можно включить фонарь. Это не тепловизор и не прибор ночного видения: без видимого света камера не различит предметы.");
         addInfoBlock(page, "ЧЕСТНЫЕ ОГРАНИЧЕНИЯ",
-                "Один динамик и один микрофон не дают настоящую 3D-картинку и не определяют тип предмета. Звук отражается от стен, мебели и пола; мягкие ткани и открытые проёмы могут давать слабое эхо. Точность зависит от комнаты, громкости и акустики конкретного телефона.");
+                "Эхо показывает отражающую поверхность, а не название предмета. Стену можно предполагать по устойчивой линии отражений на нескольких углах; отличить стул от коробки только по одному микрофону нельзя. Точность ограничена акустикой телефона и многолучевыми отражениями.");
+        addInfoBlock(page, "ИК И ДАТЧИКИ ГЛУБИНЫ",
+                "ИК-порт сверху — передатчик команд пульта, а не приёмник дальномера. Датчик приближения спереди работает как ближний режим «рядом/далеко», не как точный измеритель метров. 2-МП камера глубины предназначена для съёмки/боке; это не лазерный ToF-сканер.");
+        addInfoBlock(page, "КАКИЕ ДАННЫЕ МОЖНО ОБЪЕДИНИТЬ",
+                "Акустика даёт грубые расстояния до отражателей; гироскоп и компас — направление; камера при освещении помогает распознавать видимые предметы. Для настоящей карты глубины нужен Depth API или отдельный ToF/ультразвуковой модуль. Redmi Note 8 в списке ARCore есть, но пометки о поддержке Depth API у него нет.");
+        TextView diagnostics = label(getHardwareDiagnostics(), 10, GREEN, false);
+        diagnostics.setLineSpacing(dp(2), 1f);
+        diagnostics.setPadding(0, dp(8), 0, dp(4));
+        page.addView(diagnostics);
         TextView device = label("ЦЕЛЕВОЕ УСТРОЙСТВО: REDMI NOTE 8 · 4 ГБ ОЗУ", 10, GREEN, true);
         device.setPadding(0, dp(8), 0, 0);
         page.addView(device);
         return page;
+    }
+
+
+    private String getHardwareDiagnostics() {
+        Sensor proximity = sensorManager == null ? null
+                : sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY);
+        String proximityText = proximity == null ? "датчик приближения: не найден"
+                : String.format(java.util.Locale.US,
+                        "датчик приближения: найден (API-диапазон %.1f см; это не точный дальномер)",
+                        proximity.getMaximumRange());
+        boolean consumerIr = getPackageManager().hasSystemFeature(PackageManager.FEATURE_CONSUMER_IR);
+        String irText = consumerIr ? "ИК-порт: передатчик команд пульта"
+                : "ИК-передатчик: Android не объявляет эту функцию";
+        String depthText = hasDepthOutputCamera()
+                ? "камера: найден поток DEPTH16"
+                : "камера: отдельный поток глубины DEPTH16 не обнаружен";
+        return "ДИАГНОСТИКА УСТРОЙСТВА\n" + proximityText + "\n" + irText + "\n" + depthText;
+    }
+
+    private boolean hasDepthOutputCamera() {
+        try {
+            CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            if (manager == null) return false;
+            for (String id : manager.getCameraIdList()) {
+                CameraCharacteristics characteristics = manager.getCameraCharacteristics(id);
+                int[] capabilities = characteristics.get(
+                        CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
+                if (capabilities == null) continue;
+                for (int capability : capabilities) {
+                    if (capability == CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception ignored) { }
+        return false;
     }
 
     private void addInfoBlock(LinearLayout page, String title, String body) {
