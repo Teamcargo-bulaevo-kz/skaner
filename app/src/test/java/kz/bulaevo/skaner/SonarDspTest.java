@@ -73,6 +73,22 @@ public class SonarDspTest {
         assertEquals(0, SonarDsp.detect(new short[16000], chirp, sampleRate).length);
     }
 
+    @Test
+    public void longRangeModeFindsEchoAtEightMeters() {
+        int sampleRate = 48000;
+        short[] chirp = SonarDsp.makeChirp(sampleRate, 3500, 7500, 8);
+        short[] signal = new short[18000];
+        int directAt = 1500;
+        int echoDelay = (int) Math.round(2.0 * 8.0 * sampleRate / 343.0);
+        addPulse(signal, chirp, directAt, 0.82);
+        addPulse(signal, chirp, directAt + echoDelay, 0.24);
+
+        SonarDsp.Analysis result = SonarDsp.analyze(signal, chirp, sampleRate, 10.0f);
+        assertTrue("expected a long-range reflection", result.echoes.length > 0);
+        assertTrue("expected about 8 m: " + result.echoes[0].distanceMeters,
+                Math.abs(result.echoes[0].distanceMeters - 8.0) < 0.15);
+    }
+
     private static void addPulse(short[] signal, short[] pulse, int offset, double gain) {
         for (int i = 0; i < pulse.length && offset + i < signal.length; i++) {
             int mixed = signal[offset + i] + (int) Math.round(pulse[i] * gain);
