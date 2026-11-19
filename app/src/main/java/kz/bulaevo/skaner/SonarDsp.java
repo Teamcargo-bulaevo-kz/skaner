@@ -50,7 +50,7 @@ final class SonarDsp {
             double frequency = startHz + (endHz - startHz) * t;
             phase += 2.0 * Math.PI * frequency / sampleRate;
             double window = 0.5 - 0.5 * Math.cos(2.0 * Math.PI * i / (count - 1));
-            result[i] = (short) (Math.sin(phase) * window * 24000.0);
+            result[i] = (short) (Math.sin(phase) * window * 30000.0);
         }
         return result;
     }
