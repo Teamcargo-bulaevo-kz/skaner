@@ -26,6 +26,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Size;
+import android.util.Rational;
 import android.view.Gravity;
 import android.view.Surface;
 import android.view.TextureView;
@@ -75,6 +76,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
     private int cameraExposureMin;
     private int cameraExposureMax;
     private int cameraExposureProgress;
+    private float cameraExposureStepEv = 1.0f / 3.0f;
     private boolean flashAvailable;
     private boolean torchOn;
     private boolean monochrome;
@@ -581,6 +583,10 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
                     ? 90 : selectedCharacteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
             cameraExposureMin = range == null ? 0 : range.getLower();
             cameraExposureMax = range == null ? 0 : range.getUpper();
+            Rational exposureStep = selectedCharacteristics.get(
+                    CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP);
+            cameraExposureStepEv = exposureStep == null ? (1.0f / 3.0f)
+                    : (float) exposureStep.getNumerator() / Math.max(1, exposureStep.getDenominator());
             // AE compensation is expressed in steps from the minimum supported value.
             // Start at 0 EV (neutral), not at the maximum positive compensation.
             cameraExposureProgress = Math.max(0, Math.min(cameraExposureMax - cameraExposureMin, -cameraExposureMin));
@@ -687,8 +693,8 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         if (exposureLabel == null) return;
         int steps = Math.max(cameraExposureMin,
                 Math.min(cameraExposureMax, cameraExposureMin + cameraExposureProgress));
-        exposureLabel.setText(steps == 0 ? "ЭКСПОЗИЦИЯ: АВТО"
-                : String.format(java.util.Locale.US, "ЭКСПОЗИЦИЯ: %+.1f EV", steps / 3.0));
+        exposureLabel.setText(String.format(java.util.Locale.US,
+                "ЭКСПОЗИЦИЯ: %+.1f EV", steps * cameraExposureStepEv));
     }
 
     private void updateTorchUi() {
