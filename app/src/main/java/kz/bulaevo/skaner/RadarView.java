@@ -23,9 +23,10 @@ final class RadarView extends View {
     private static final float BIN_DEGREES = 8f;
     private static final int SECTOR_COUNT = 45;
     private static final int HISTORY_LIMIT = 12;
-    private static final long MIN_SAMPLE_SPACING_MS = 120L;
-    private static final long HISTORY_AGE_MS = 2200L;
-    private static final float MAX_RANGE = 6.5f;
+    private static final long MIN_SAMPLE_SPACING_MS = 100L;
+    private static final long HISTORY_AGE_MS = 6000L;
+    private static final long MAP_POINT_AGE_MS = 45000L;
+    private float maxRange = 2.0f;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Sector[] sectors = new Sector[SECTOR_COUNT];
@@ -59,6 +60,11 @@ final class RadarView extends View {
         invalidate();
     }
 
+    void setMaxRange(float value) {
+        maxRange = Math.max(2.0f, Math.min(10.0f, value));
+        invalidate();
+    }
+
     void setHint(String value) {
         hint = value == null ? "" : value;
         postInvalidate();
@@ -87,7 +93,7 @@ final class RadarView extends View {
         if (echoes != null) {
             for (SonarDsp.Echo echo : echoes) {
                 if (echo != null && echo.strength >= 0.065f
-                        && echo.distanceMeters >= 0.24f && echo.distanceMeters <= MAX_RANGE
+                        && echo.distanceMeters >= 0.24f && echo.distanceMeters <= maxRange
                         && (nearest < 0f || echo.distanceMeters < nearest)) {
                     nearest = echo.distanceMeters;
                 }
@@ -107,7 +113,9 @@ final class RadarView extends View {
             sector.samples.removeFirst();
         }
 
-        if (sector.samples.size() >= 4) {
+        while (sector.samples.size() > 24) sector.samples.removeFirst();
+
+        if (sector.samples.size() >= 3) {
             float[] values = new float[sector.samples.size()];
             int n = 0;
             for (Sample sample : sector.samples) values[n++] = sample.distance;
@@ -118,7 +126,7 @@ final class RadarView extends View {
             Arrays.sort(deviations);
             float mad = median(deviations);
             // Reject unstable multipath peaks instead of painting them as objects.
-            if (mad <= 0.20f && values[n - 1] - values[0] <= 0.70f) {
+            if (mad <= 0.32f && values[n - 1] - values[0] <= 1.00f) {
                 sector.distance = median;
                 sector.confirmations = n;
                 sector.updatedAt = now;
@@ -126,7 +134,7 @@ final class RadarView extends View {
         }
 
         for (Sector item : sectors) {
-            if (item.distance > 0f && now - item.updatedAt > 12000L) {
+            if (item.distance > 0f && now - item.updatedAt > MAP_POINT_AGE_MS) {
                 item.distance = -1f;
                 item.confirmations = 0;
             }
@@ -154,7 +162,7 @@ final class RadarView extends View {
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(1f);
         paint.setColor(GRID);
-        for (int ring = 1; ring <= 6; ring++) canvas.drawCircle(cx, cy, radius * ring / 6f, paint);
+        for (int ring = 1; ring <= 5; ring++) canvas.drawCircle(cx, cy, radius * ring / 5f, paint);
         for (int angle = 0; angle < 360; angle += 30) {
             float radians = (float) Math.toRadians(angle - 90);
             canvas.drawLine(cx, cy, cx + (float) Math.cos(radians) * radius,
@@ -165,9 +173,12 @@ final class RadarView extends View {
         paint.setColor(0xFF8BBFB0);
         paint.setTextSize(10f * getResources().getDisplayMetrics().density);
         paint.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        for (int ring = 1; ring <= 6; ring++) {
-            float r = radius * ring / 6f;
-            canvas.drawText(ring + " м", cx + 5, cy - r + 13, paint);
+        for (int ring = 1; ring <= 5; ring++) {
+            float r = radius * ring / 5f;
+            float metres = maxRange * ring / 5.0f;
+            String label = metres >= 1.0f ? String.format(java.util.Locale.US, "%.0f м", metres)
+                    : String.format(java.util.Locale.US, "%.1f м", metres);
+            canvas.drawText(label, cx + 5, cy - r + 13, paint);
         }
         canvas.drawText("N", cx - 4, cy - radius - 8, paint);
         canvas.drawText("E", cx + radius + 6, cy + 4, paint);
@@ -181,16 +192,16 @@ final class RadarView extends View {
         int previousIndex = -2;
         for (int i = 0; i < sectors.length; i++) {
             Sector sector = sectors[i];
-            if (sector.distance <= 0f || now - sector.updatedAt > 12000L) {
+            if (sector.distance <= 0f || now - sector.updatedAt > MAP_POINT_AGE_MS) {
                 hasPrevious = false;
                 previousIndex = -2;
                 continue;
             }
-            float r = radius * sector.distance / MAX_RANGE;
+            float r = radius * sector.distance / maxRange;
             float angle = (float) Math.toRadians(i * BIN_DEGREES - 90.0);
             float x = cx + (float) Math.cos(angle) * r;
             float y = cy + (float) Math.sin(angle) * r;
-            int alpha = (int) (Math.max(0.20, 1.0 - (now - sector.updatedAt) / 15000.0) * 220);
+            int alpha = (int) (Math.max(0.20, 1.0 - (now - sector.updatedAt) / (double) MAP_POINT_AGE_MS) * 220);
             float dot = 3.0f + Math.min(2.5f, sector.confirmations * 0.18f);
             paint.setColor((alpha << 24) | 0x006FE2B1);
             canvas.drawCircle(x, y, dot * 1.7f, paint);
