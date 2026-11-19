@@ -285,7 +285,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         });
         page.addView(actions, new LinearLayout.LayoutParams(-1, dp(53)));
 
-        TextView note = label("Экспозиция помогает при слабом свете. В полной темноте обычная камера не видит без подсветки.", 10, MUTED, false);
+        TextView note = label("Плюсовая экспозиция повышает яркость. Ч/Б помогает различать контуры; фонарь нужен в полной темноте.", 10, MUTED, false);
         note.setPadding(dp(3), dp(6), dp(3), 0);
         page.addView(note, new LinearLayout.LayoutParams(-1, dp(40)));
         updateTorchUi();
@@ -303,7 +303,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
         addInfoBlock(page, "КАРТА КОМНАТЫ",
                 "Медленно поворачивайте телефон по кругу. Каждое найденное отражение сохраняется на полярной карте по направлению и приблизительной дистанции. Для ориентации держите экран вверх, нижний динамик направляйте наружу.");
         addInfoBlock(page, "НОЧНОЙ РЕЖИМ",
-                "Камера использует возможности автоэкспозиции телефона и компенсацию экспозиции. Можно включить фонарь. Это не тепловизор и не прибор ночного видения: без видимого света камера не различит предметы.");
+                "Камера использует положительную компенсацию экспозиции, фонарь и переключаемый чёрно-белый режим. В полной темноте без подсветки обычная камера не видит предметы.");
         addInfoBlock(page, "ЧЕСТНЫЕ ОГРАНИЧЕНИЯ",
                 "Эхо показывает отражающую поверхность, а не название предмета. Стену можно предполагать по устойчивой линии отражений на нескольких углах; отличить стул от коробки только по одному микрофону нельзя. Точность ограничена акустикой телефона и многолучевыми отражениями.");
         addInfoBlock(page, "ИК И ДАТЧИКИ ГЛУБИНЫ",
@@ -564,8 +564,7 @@ public class MainActivity extends Activity implements SensorEventListener, Textu
                     ? 90 : selectedCharacteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
             cameraExposureMin = range == null ? 0 : range.getLower();
             cameraExposureMax = range == null ? 0 : range.getUpper();
-            cameraExposureProgress = Math.max(0, Math.min(
-                    cameraExposureMax - cameraExposureMin, -cameraExposureMin));
+            cameraExposureProgress = Math.max(0, cameraExposureMax - cameraExposureMin);
             if (exposureSeekBar != null) {
                 exposureSeekBar.setMax(Math.max(1, cameraExposureMax - cameraExposureMin));
                 exposureSeekBar.setProgress(cameraExposureProgress);
