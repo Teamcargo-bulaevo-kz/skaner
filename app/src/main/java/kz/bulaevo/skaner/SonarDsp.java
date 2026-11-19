@@ -12,12 +12,11 @@ import java.util.List;
  * AudioRecord starts before AudioTrack playback, so the direct sound does not
  * necessarily appear at sample zero. We first locate the earliest strong
  * direct-path peak inside a bounded playback-latency gate, then measure
- * later peaks relative to that origin. With DECIMATION=2, the decimated lag
- * index multiplied by c/sampleRate is the round-trip-corrected distance.
+ * later peaks relative to that origin. All correlation is performed at the
+ * native sample rate; distance is half the acoustic round-trip path.
  */
 final class SonarDsp {
     private static final double SPEED_OF_SOUND = 343.0;
-    private static final int DECIMATION = 2;
     private static final double DIRECT_LATENCY_WINDOW_SECONDS = 0.080;
     private static final double MIN_RANGE_METERS = 0.24;
     private static final double MAX_RANGE_METERS = 6.5;
@@ -66,25 +65,24 @@ final class SonarDsp {
             return new Analysis(new Echo[0], 0f);
         }
 
-        int templateLength = reference.length / DECIMATION;
+        int templateLength = reference.length;
         double[] template = new double[templateLength];
         double templateEnergy = 0.0;
         for (int i = 0; i < templateLength; i++) {
-            template[i] = reference[i * DECIMATION] / 32768.0;
+            template[i] = reference[i] / 32768.0;
             templateEnergy += template[i] * template[i];
         }
         if (templateEnergy < 1.0e-6) return new Analysis(new Echo[0], 0f);
 
-        int decimatedLength = signal.length / DECIMATION;
-        int candidateCount = decimatedLength - templateLength;
+        int candidateCount = signal.length - templateLength;
         if (candidateCount < 16) return new Analysis(new Echo[0], 0f);
 
         // The recording clock and speaker playback clock are not sample-aligned.
         // Allow hardware buffering latency, but do not let room echoes define zero.
         int directSearchLimit = Math.min(candidateCount - 2,
                 Math.max(8, (int) Math.ceil(sampleRate
-                        * DIRECT_LATENCY_WINDOW_SECONDS / DECIMATION)));
-        int maxRangeLag = (int) Math.ceil(sampleRate * MAX_RANGE_METERS / SPEED_OF_SOUND);
+                        * DIRECT_LATENCY_WINDOW_SECONDS)));
+        int maxRangeLag = (int) Math.ceil(2.0 * sampleRate * MAX_RANGE_METERS / SPEED_OF_SOUND);
         int lastSearch = Math.min(candidateCount - 2, directSearchLimit + maxRangeLag);
         float[] scores = new float[lastSearch + 2];
         double[] energies = new double[lastSearch + 2];
@@ -94,7 +92,7 @@ final class SonarDsp {
             double dot = 0.0;
             double energy = 0.0;
             for (int j = 0; j < templateLength; j++) {
-                double value = signal[(start + j) * DECIMATION] / 32768.0;
+                double value = signal[start + j] / 32768.0;
                 dot += value * template[j];
                 energy += value * value;
             }
@@ -134,7 +132,7 @@ final class SonarDsp {
         }
 
         int first = Math.max(directIndex + 1,
-                directIndex + (int) Math.ceil(sampleRate * MIN_RANGE_METERS / SPEED_OF_SOUND));
+                directIndex + (int) Math.ceil(2.0 * sampleRate * MIN_RANGE_METERS / SPEED_OF_SOUND));
         int last = Math.min(lastSearch, directIndex + maxRangeLag);
         if (last <= first + 2) return new Analysis(new Echo[0], strongestDirect);
 
@@ -143,19 +141,20 @@ final class SonarDsp {
         Arrays.sort(noiseScores);
         float p99 = noiseScores[Math.min(noiseScores.length - 1,
                 (int) Math.floor((noiseScores.length - 1) * 0.99))];
-        float threshold = Math.max(0.18f, p99 + 0.025f);
+        float threshold = Math.max(0.28f, p99 + 0.06f);
         double directEnergy = Math.max(1.0e-12, energies[directIndex]);
 
         List<Echo> found = new ArrayList<>();
         for (int i = first + 1; i < last; i++) {
             float score = scores[i];
             if (score < threshold || score <= scores[i - 1] || score < scores[i + 1]) continue;
+            if (score - Math.max(scores[i - 1], scores[i + 1]) < 0.025f) continue;
             // Normalized correlation alone can rate tiny noise as a good match.
             if (energies[i] < directEnergy * 0.00002) continue;
 
             double fraction = parabolicOffset(scores[i - 1], score, scores[i + 1]);
             double lag = (i + fraction) - directIndex;
-            double range = lag * SPEED_OF_SOUND / sampleRate;
+            double range = lag * SPEED_OF_SOUND / (2.0 * sampleRate);
             if (range >= MIN_RANGE_METERS && range <= MAX_RANGE_METERS) {
                 found.add(new Echo((float) range, score));
             }
@@ -171,7 +170,7 @@ final class SonarDsp {
         for (Echo candidate : found) {
             boolean duplicate = false;
             for (Echo kept : filtered) {
-                if (Math.abs(candidate.distanceMeters - kept.distanceMeters) < 0.14f) {
+                if (Math.abs(candidate.distanceMeters - kept.distanceMeters) < 0.22f) {
                     duplicate = true;
                     break;
                 }
